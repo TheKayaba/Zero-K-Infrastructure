@@ -206,6 +206,7 @@
     <Compile Include="MicroLobby\ExtrasTab\SkirmishControl.Designer.cs">
       <DependentUpon>SkirmishControl.cs</DependentUpon>
     </Compile>
+    <Compile Include="MicroLobby\NativeTextRenderer.cs" />
     <Compile Include="MicroLobby\TextColoringPanel.cs">
       <SubType>Form</SubType>
     </Compile>

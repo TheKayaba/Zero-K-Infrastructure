@@ -45,6 +45,9 @@ namespace ZeroKLobby.MicroLobby
     {
         private const int defaultMaxLines = 495; //about 10 pages
         private const int HardMaximumLines = 29950; //absolute maximum to avoid extreme case.
+
+        NativeTextRenderer textRenderer;
+
         private int MaxTextLines = 1; //this size is not fixed. It expand when detected spam, and maintain size when new line are added at slow interval.
         private int MaxDisplayLines = 1;
         //old URL regex for reference: WwwMatch = @"((https?|www\.|zk://)[^\s,]+)";
@@ -130,6 +133,7 @@ namespace ZeroKLobby.MicroLobby
         {
             SuspendLayout();
             InitializeComponent();
+            textRenderer = new NativeTextRenderer(CreateGraphics());
             ShowUnreadLine = true;
 
             vScrollBar.Scroll += OnScroll;
@@ -519,8 +523,7 @@ namespace ZeroKLobby.MicroLobby
                 textLines[totalLines].Line = newLine;
 
                 //properly measure for bold characters needed
-                using (var g = CreateGraphics())
-                    textLines[totalLines].Width = TextRenderer.MeasureText(g, TextColor.StripCodes(newLine), Font, new Size(), TextFormatFlags.NoPadding).Width;
+                textLines[totalLines].Width = textRenderer.MeasureString(TextColor.StripCodes(newLine), Font).Width;
 
                 textLines[totalLines].TextColor = foreColor;
 
@@ -637,35 +640,32 @@ namespace ZeroKLobby.MicroLobby
                                     break;
                                 default:
                                     //check if there needs to be a linewrap
-                                    using (var g = CreateGraphics())
+                                    if (textRenderer.MeasureString(buildString.ToString().StripAllCodes(), Font).Width + emotSpace > displayWidth)
                                     {
-                                        if (TextRenderer.MeasureText(g, buildString.ToString().StripAllCodes(), Font, new Size()).Width + emotSpace > displayWidth)
+                                        if (lineSplit) displayLines[line].Line = lastColor + buildString;
+                                        else displayLines[line].Line = buildString.ToString();
+
+                                        displayLines[line].TextLine = currentLine;
+                                        displayLines[line].Wrapped = true;
+                                        displayLines[line].TextColor = textLines[currentLine].TextColor;
+
+                                        lineSplit = true;
+                                        if (nextColor.Length != 0)
                                         {
-                                            if (lineSplit) displayLines[line].Line = lastColor + buildString;
-                                            else displayLines[line].Line = buildString.ToString();
-
-                                            displayLines[line].TextLine = currentLine;
-                                            displayLines[line].Wrapped = true;
-                                            displayLines[line].TextColor = textLines[currentLine].TextColor;
-
-                                            lineSplit = true;
-                                            if (nextColor.Length != 0)
-                                            {
-                                                lastColor = nextColor;
-                                                nextColor = "";
-                                            }
-                                            line++;
-                                            if (line >= MaxDisplayLines)
-                                                AddNewDisplayLines();
-
-                                            displayLines[line].Previous = true;
-                                            buildString = null;
-                                            buildString = new StringBuilder();
-                                            buildString.Append(ch[0]);
+                                            lastColor = nextColor;
+                                            nextColor = "";
                                         }
-                                        else buildString.Append(ch[0]);
-                                        break;
+                                        line++;
+                                        if (line >= MaxDisplayLines)
+                                            AddNewDisplayLines();
+
+                                        displayLines[line].Previous = true;
+                                        buildString = null;
+                                        buildString = new StringBuilder();
+                                        buildString.Append(ch[0]);
                                     }
+                                    else buildString.Append(ch[0]);
+                                    break;
                             }
                         }
                     }
@@ -697,8 +697,8 @@ namespace ZeroKLobby.MicroLobby
             {
                 LineSize = Convert.ToInt32(Font.GetHeight(g));
 
-                showMaxLines = (Height/LineSize) + 1;
-                vScrollBar.LargeChange = Math.Max(showMaxLines - 3 , 1); //include previous 3 lines for continuity
+                showMaxLines = (Height / LineSize) + 1;
+                vScrollBar.LargeChange = Math.Max(showMaxLines - 3, 1); //include previous 3 lines for continuity
             }
         }
 
@@ -751,7 +751,11 @@ namespace ZeroKLobby.MicroLobby
                     g.TextRenderingHint = TextRenderingHint.SystemDefault;
 
 
-                    if (totalLines == 0) e.Graphics.DrawImageUnscaled(buffer, 0, 0);
+                    if (totalLines == 0)
+                    {
+                        textRenderer.Dispose();
+                        e.Graphics.DrawImageUnscaled(buffer, 0, 0);
+                    }
                     else
                     {
                         var val = vScrollBar.Value;
@@ -766,7 +770,7 @@ namespace ZeroKLobby.MicroLobby
                             linesToDraw = 1;
                             curLine = 0;
                         }
-                        else startY = Height - (LineSize*linesToDraw) - (LineSize/2);
+                        else startY = Height - (LineSize * linesToDraw) - (LineSize / 2);
 
                         var lineCounter = 0;
 
@@ -799,7 +803,8 @@ namespace ZeroKLobby.MicroLobby
 
                             if (redline == curLine)
                             {
-                                using (var p = new Pen(Color.Red)) {
+                                using (var p = new Pen(Color.Red))
+                                {
                                     g.DrawLine(p, 0, startY, Width, startY);
                                 }
                             }
@@ -846,19 +851,19 @@ namespace ZeroKLobby.MicroLobby
 
                                                     if (curBackColor != backColor)
                                                     {
-                                                        textSize = TextRenderer.MeasureText(g, builtString, Font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                        textSize = textRenderer.MeasureString(builtString, Font).Width;
                                                         var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                                         g.FillRectangle(backColorBrush, r); //draw white (or black) rectangle
                                                     }
 
                                                     g.DrawImage(bm, //draw an emoticon
-                                                                startX + TextRenderer.MeasureText(g, builtString, Font, new Size(), TextFormatFlags.NoPadding).Width,
+                                                                startX + textRenderer.MeasureString(builtString, Font).Width,
                                                                 startY,
                                                                 16,
                                                                 16);
-                                                    TextRenderer.DrawText(g, builtString, Font, new Point(startX, startY), curForeColorTrue);
+                                                    textRenderer.DrawString(builtString, Font, curForeColorTrue, new Point(startX, startY));
 
-                                                    startX += bm.Width + TextRenderer.MeasureText(g, builtString, Font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                    startX += bm.Width + textRenderer.MeasureString(builtString, Font).Width;
 
                                                     buildString.Clear(); //reset the content (because we already draw it for user)
                                                 }
@@ -866,13 +871,13 @@ namespace ZeroKLobby.MicroLobby
                                             case TextColor.UrlStart:
                                                 if (curBackColor != backColor)
                                                 {
-                                                    textSize = TextRenderer.MeasureText(g, builtString, Font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                    textSize = textRenderer.MeasureString(builtString, Font).Width;
                                                     var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                                     g.FillRectangle(backColorBrush, r);
                                                 }
-                                                TextRenderer.DrawText(g, builtString, font, new Point(startX, startY), curForeColorTrue);
+                                                textRenderer.DrawString(builtString, font, curForeColorTrue, new Point(startX, startY));
 
-                                                startX += TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width; //textSizes[32]
+                                                startX += textRenderer.MeasureString(builtString, font).Width; //textSizes[32]
 
                                                 buildString.Clear();
 
@@ -888,13 +893,13 @@ namespace ZeroKLobby.MicroLobby
                                             case TextColor.UrlEnd:
                                                 if (curBackColor != backColor)
                                                 {
-                                                    textSize = TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                    textSize = textRenderer.MeasureString(builtString, font).Width;
                                                     var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                                     g.FillRectangle(backColorBrush, r);
                                                 }
-                                                TextRenderer.DrawText(g, builtString, font, new Point(startX, startY), curForeColorTrue);
+                                                textRenderer.DrawString(builtString, font, curForeColorTrue, new Point(startX, startY));
 
-                                                startX += TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                startX += textRenderer.MeasureString(builtString, font).Width;
 
                                                 buildString.Clear();
 
@@ -909,13 +914,13 @@ namespace ZeroKLobby.MicroLobby
                                             case TextColor.UnderlineChar:
                                                 if (curBackColor != backColor)
                                                 {
-                                                    textSize = TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                    textSize = textRenderer.MeasureString(builtString, font).Width;
                                                     var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                                     g.FillRectangle(backColorBrush, r);
                                                 }
-                                                TextRenderer.DrawText(g, builtString, font, new Point(startX, startY), curForeColorTrue);
+                                                textRenderer.DrawString(builtString, font, curForeColorTrue, new Point(startX, startY));
 
-                                                startX += TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                startX += textRenderer.MeasureString(builtString, font).Width;
 
                                                 buildString.Clear();
 
@@ -927,19 +932,19 @@ namespace ZeroKLobby.MicroLobby
                                                 underline = !underline;
                                                 font.SafeDispose();
                                                 if (underline) font = new Font(Font, FontStyle.Underline);
-                                                else {font = new Font(Font, FontStyle.Regular);}
+                                                else { font = new Font(Font, FontStyle.Regular); }
                                                 break;
                                             case TextColor.NewColorChar:
                                                 //draw whats previously in the string
                                                 if (curBackColor != backColor)
                                                 {
-                                                    textSize = TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                    textSize = textRenderer.MeasureString(builtString, font).Width;
                                                     var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                                     g.FillRectangle(backColorBrush, r);
                                                 }
-                                                TextRenderer.DrawText(g, builtString, font, new Point(startX, startY), curForeColorTrue);
+                                                textRenderer.DrawString(builtString, font, curForeColorTrue, new Point(startX, startY));
 
-                                                startX += TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                startX += textRenderer.MeasureString(builtString, font).Width;
 
                                                 buildString.Clear();
 
@@ -959,7 +964,7 @@ namespace ZeroKLobby.MicroLobby
                                                 else //if highlighting then:
                                                 {
                                                     pastForeColor = Convert.ToInt32(line.ToString().Substring(1, 2)); //remember what color this text suppose to be (will be restored to the text on the right if highlighting only happen to text on the left) 
-                                                    
+
                                                     //check to make sure that FC and BC are in range 0-32
                                                     if (pastForeColor > TextColor.colorRange) pastForeColor = displayLines[curLine].TextColor; //only happen on exceptional case (this is only for safety, no significant whatsoever)
                                                 }
@@ -971,26 +976,26 @@ namespace ZeroKLobby.MicroLobby
 
                                             default:
                                                 //random symbol safety check (symbols to skip drawing)
-                                                if((int)ch[0] > Int16.MaxValue) //random symbol can mess up graphic object "g" in Linux! which cause nothing to be drawn after the symbol
+                                                if ((int)ch[0] > Int16.MaxValue) //random symbol can mess up graphic object "g" in Linux! which cause nothing to be drawn after the symbol
                                                 {
                                                     if (curBackColor != backColor)
                                                     {
-                                                        textSize = TextRenderer.MeasureText(g, builtString, Font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                        textSize = textRenderer.MeasureString(builtString, Font).Width;
                                                         var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                                         g.FillRectangle(backColorBrush, r);
                                                     }
-                                                    TextRenderer.DrawText(g, builtString, font, new Point(startX, startY), curForeColorTrue);
+                                                    textRenderer.DrawString(builtString, font, curForeColorTrue, new Point(startX, startY));
 
-                                                    startX += TextRenderer.MeasureText(g, builtString, Font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                    startX += textRenderer.MeasureString(builtString, Font).Width;
                                                     float symbolWidth;
-                                                    using (var tmpBuffer = new Bitmap(LineSize,LineSize, PixelFormat.Format32bppPArgb))
+                                                    using (var tmpBuffer = new Bitmap(LineSize, LineSize, PixelFormat.Format32bppPArgb))
                                                     using (var tmpG = Graphics.FromImage(tmpBuffer)) //temporary graphic object that can be messed up independently
                                                     {
                                                         var randomChar = ch[0].ToString();
-                                                        symbolWidth = TextRenderer.MeasureText(g, randomChar, font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                        symbolWidth = textRenderer.MeasureString(randomChar, font).Width;
                                                         if (symbolWidth > 0) //don't draw when symbol width == 0 (symptom obtained from trial-n-error)
                                                         {
-                                                            TextRenderer.DrawText(g, randomChar, font, new Point(startX, startY), curForeColorTrue);
+                                                            textRenderer.DrawString(randomChar, font, curForeColorTrue, new Point(startX, startY));
                                                         }
                                                     }
                                                     startX += (int)symbolWidth;
@@ -1038,13 +1043,13 @@ namespace ZeroKLobby.MicroLobby
                                                     //draw whats previously in the string                                
                                                     if (curBackColor != backColor)
                                                     {
-                                                        textSize = TextRenderer.MeasureText(g, builtString, Font, new Size(), TextFormatFlags.NoPadding).Width;
+                                                        textSize = textRenderer.MeasureString(builtString, Font).Width;
                                                         var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                                         g.FillRectangle(backColorBrush, r); //draw black (or white) rectangle
                                                     }
-                                                    TextRenderer.DrawText(g, builtString, font, new Point(startX, startY), curForeColorTrue);
+                                                    textRenderer.DrawString(builtString, font, curForeColorTrue, new Point(startX, startY));
 
-                                                    startX += TextRenderer.MeasureText(g, builtString, font, new Size(), TextFormatFlags.NoPadding).Width; //textSizes[32]
+                                                    startX += textRenderer.MeasureString(builtString, font).Width; //textSizes[32]
 
                                                     buildString.Clear();//reset the content (because we already draw it for user)
 
@@ -1076,11 +1081,11 @@ namespace ZeroKLobby.MicroLobby
                             {
                                 if (curBackColor != backColor)
                                 {
-                                    textSize = TextRenderer.MeasureText(g, buildString.ToString(), font, new Size(), TextFormatFlags.NoPadding).Width;
+                                    textSize = textRenderer.MeasureString(buildString.ToString(), font).Width;
                                     var r = new Rectangle(startX, startY, textSize + 1, LineSize + 1);
                                     using (var brush = new SolidBrush(curBackColorTrue)) g.FillRectangle(brush, r);
                                 }
-                                TextRenderer.DrawText(g, buildString.ToString(), font, new Point(startX, startY), curForeColorTrue, curBackColorTrue);
+                                textRenderer.DrawString(buildString.ToString(), font, curForeColorTrue, new Point(startX, startY));
                             }
 
                             startY += LineSize;
@@ -1212,42 +1217,39 @@ namespace ZeroKLobby.MicroLobby
         {
             try
             {
-                using (var g = CreateGraphics())
+                if (lineNumber < TotalDisplayLines && lineNumber >= 0)
                 {
-                    if (lineNumber < TotalDisplayLines && lineNumber >= 0)
+                    var lineEmot = displayLines[lineNumber].Line.StripAllCodesExceptEmot();
+                    var line = displayLines[lineNumber].Line.StripAllCodes(); //get all character of the line (Note: StripAllCodes() is a function in TextColor.cs)
+
+                    //do line-width check once if "x" is greater than line width, else check every character for the correct position where "x" is pointing at. 
+                    int width = textRenderer.MeasureString(lineEmot, Font).Width;
+                    if (x > width)
                     {
-                        var lineEmot = displayLines[lineNumber].Line.StripAllCodesExceptEmot();
-                        var line = displayLines[lineNumber].Line.StripAllCodes(); //get all character of the line (Note: StripAllCodes() is a function in TextColor.cs)
-
-                        //do line-width check once if "x" is greater than line width, else check every character for the correct position where "x" is pointing at. 
-                        int width = TextRenderer.MeasureText(g, lineEmot, Font, new Size(), TextFormatFlags.NoPadding).Width;
-                        if (x > width)
-                        {
-                            return line.Length; //end of line
-                        }
-
-                        //check every character INCLUDING icon position for the correct position where "x" is pointing at.
-                        float lookWidth = 0;
-                        for (var i = 0; i < line.Length; i++) //check every character in a line
-                        {
-                            if ((char)lineEmot[i] == TextColor.EmotChar)
-                            {
-                                var emotNumber = Convert.ToInt32(lineEmot.ToString().Substring(i + 1, 3));
-                                lineEmot = lineEmot.Remove(i, 4);
-                                var bm = TextImage.GetImage(emotNumber);
-                                lookWidth += bm.Width;
-                                i--; //halt pointer position for this time once (at second try the emot char will be gone, its size is added and continue checking the other stuff)
-                                continue;
-                            }
-                            float charWidth = TextRenderer.MeasureText(g, line[i].ToString(), Font, new Size(), TextFormatFlags.NoPadding).Width;
-                            lookWidth += charWidth;
-                            if ((int)lookWidth >= (x + (int)charWidth / 2)) //check whether this character is on cursor position or not.  Note: char checking & x-coordinate is checked from left to right (everything is from left to right)
-                            {
-                                return i;
-                            }
-                        }
-                        return line.Length;
+                        return line.Length; //end of line
                     }
+
+                    //check every character INCLUDING icon position for the correct position where "x" is pointing at.
+                    float lookWidth = 0;
+                    for (var i = 0; i < line.Length; i++) //check every character in a line
+                    {
+                        if ((char)lineEmot[i] == TextColor.EmotChar)
+                        {
+                            var emotNumber = Convert.ToInt32(lineEmot.ToString().Substring(i + 1, 3));
+                            lineEmot = lineEmot.Remove(i, 4);
+                            var bm = TextImage.GetImage(emotNumber);
+                            lookWidth += bm.Width;
+                            i--; //halt pointer position for this time once (at second try the emot char will be gone, its size is added and continue checking the other stuff)
+                            continue;
+                        }
+                        float charWidth = textRenderer.MeasureString(line[i].ToString(), Font).Width;
+                        lookWidth += charWidth;
+                        if ((int)lookWidth >= (x + (int)charWidth / 2)) //check whether this character is on cursor position or not.  Note: char checking & x-coordinate is checked from left to right (everything is from left to right)
+                        {
+                            return i;
+                        }
+                    }
+                    return line.Length;
                 }
             }
             catch (Exception ee)
@@ -1262,100 +1264,97 @@ namespace ZeroKLobby.MicroLobby
         {
             try
             {
-                using (var g = CreateGraphics())
+                if (lineNumber < TotalDisplayLines && lineNumber >= 0)
                 {
-                    if (lineNumber < TotalDisplayLines && lineNumber >= 0)
+                    var lineEmot = displayLines[lineNumber].Line.StripAllCodesExceptEmot();
+                    var line = displayLines[lineNumber].Line.StripAllCodes();
+
+                    //do line-width check once if "x" is greater than line width,
+                    int width = textRenderer.MeasureString(line, Font).Width;
+                    //int width = (int)g.MeasureString(lineEmot, Font, 0, sf).Width; / //<-- you can uncomment this and comment the previous line. The bad thing is: will overestimate hyperlinks ending, which make you able to click empty space
+                    if (x > width)
                     {
-                        var lineEmot = displayLines[lineNumber].Line.StripAllCodesExceptEmot();
-                        var line = displayLines[lineNumber].Line.StripAllCodes();
+                        return "";
+                    }
+                    if (x <= 0)
+                    {
+                        return "";
+                    }
 
-                        //do line-width check once if "x" is greater than line width,
-                        int width = TextRenderer.MeasureText(g, line, Font, new Size(), TextFormatFlags.NoPadding).Width;
-                        //int width = (int)g.MeasureString(lineEmot, Font, 0, sf).Width; / //<-- you can uncomment this and comment the previous line. The bad thing is: will overestimate hyperlinks ending, which make you able to click empty space
-                        if (x > width)
+                    var space = 0;
+                    var foundSpace = false;
+                    float lookWidth = 0;
+                    for (var i = 0; i < line.Length; i++)
+                    {
+                        if ((char)lineEmot[i] == TextColor.EmotChar) //equal to an emot icon
                         {
-                            return "";
+                            int emotNumber = Convert.ToInt32(lineEmot.ToString().Substring(i + 1, 3));
+                            lineEmot = lineEmot.Remove(i, 4); //clear emot char from lineEmot
+                            Image bm = TextImage.GetImage(emotNumber);
+                            lookWidth += bm.Width; //add emot size
+                            i--; //halt pointer position for this time once (at second try the emot char will be gone, its size is added and continue checking the other stuff)
+                            continue;
                         }
-                        if (x <= 0)
+
+                        if ((int)lookWidth >= x && foundSpace)
                         {
-                            return "";
-                        }
-
-                        var space = 0;
-                        var foundSpace = false;
-                        float lookWidth = 0;
-                        for (var i = 0; i < line.Length; i++)
-                        {
-                            if ((char)lineEmot[i] == TextColor.EmotChar) //equal to an emot icon
+                            if (displayLines[lineNumber].Previous && lineNumber > 0 && space == 0)
                             {
-                                int emotNumber = Convert.ToInt32(lineEmot.ToString().Substring(i + 1, 3));
-                                lineEmot = lineEmot.Remove(i, 4); //clear emot char from lineEmot
-                                Image bm = TextImage.GetImage(emotNumber);
-                                lookWidth += bm.Width; //add emot size
-                                i--; //halt pointer position for this time once (at second try the emot char will be gone, its size is added and continue checking the other stuff)
-                                continue;
-                            }
-
-                            if ((int)lookWidth >= x && foundSpace)
-                            {
-                                if (displayLines[lineNumber].Previous && lineNumber > 0 && space == 0)
-                                {
-                                    // this line wraps from the previous one. 
-                                    var prevline = displayLines[lineNumber - 1].Line.StripAllCodes();
-                                    int prevwidth = TextRenderer.MeasureText(g, prevline, Font, new Size(), TextFormatFlags.NoPadding).Width;
-                                    return ReturnWord(lineNumber - 1, prevwidth);
-                                }
-                                return line.Substring(space, i - space); //Substring(space, i - space), in example: xxx__Yxxxx_T_xxx OR Yxx_T_xxxxx__xxx (where T is pointing at spaces, Y pointing at 1st letter)
-                            }
-
-                            if (line[i] == (char)32) //equal to "space"
-                            {
-                                if (!foundSpace)
-                                {
-                                    if ((int)lookWidth >= x)
-                                    {
-                                        foundSpace = true; //current position, in example: xxx__xxxxx_T_xxx (where T is pointing at space on right)
-                                        i--; //halt pointer position for this time once (at second loop the mid-code will be executed to return the Substring)
-                                    }
-                                    else space = i + 1; //i + 1 position, in example: xxx__Yxxxx__xxx (Y at 1st letter after a space)
-                                }
-                            }
-
-                            lookWidth += TextRenderer.MeasureText(g, line[i].ToString(), Font, new Size(), TextFormatFlags.NoPadding).Width;
-                        }
-                        if (displayLines[lineNumber].Previous && lineNumber > 0 && space == 0)
-                        {
-                            // this line wraps from the previous one. 
-                            var prevline = displayLines[lineNumber - 1].Line.StripAllCodes();
-                            if (prevline[prevline.Length - 1] != ' ')
-                            {
-                                int prevwidth = TextRenderer.MeasureText(g, prevline, Font, new Size(), TextFormatFlags.NoPadding).Width;
+                                // this line wraps from the previous one. 
+                                var prevline = displayLines[lineNumber - 1].Line.StripAllCodes();
+                                int prevwidth = textRenderer.MeasureString(prevline, Font).Width;
                                 return ReturnWord(lineNumber - 1, prevwidth);
                             }
+                            return line.Substring(space, i - space); //Substring(space, i - space), in example: xxx__Yxxxx_T_xxx OR Yxx_T_xxxxx__xxx (where T is pointing at spaces, Y pointing at 1st letter)
                         }
 
-                        if (!foundSpace && space < line.Length)
+                        if (line[i] == (char)32) //equal to "space"
                         {
-                            //wrap to the next line
-                            if (lineNumber < TotalDisplayLines)
+                            if (!foundSpace)
                             {
-                                var extra = "";
-                                var currentLine = displayLines[lineNumber].TextLine;
-
-                                while (lineNumber < TotalDisplayLines)
+                                if ((int)lookWidth >= x)
                                 {
-                                    lineNumber++;
-                                    if (displayLines[lineNumber].TextLine != currentLine) break;
-
-                                    extra += displayLines[lineNumber].Line.StripAllCodes();
-                                    if (extra.IndexOf(' ') > -1)
-                                    {
-                                        extra = extra.Substring(0, extra.IndexOf(' '));
-                                        break;
-                                    }
+                                    foundSpace = true; //current position, in example: xxx__xxxxx_T_xxx (where T is pointing at space on right)
+                                    i--; //halt pointer position for this time once (at second loop the mid-code will be executed to return the Substring)
                                 }
-                                return line.Substring(space) + extra;
+                                else space = i + 1; //i + 1 position, in example: xxx__Yxxxx__xxx (Y at 1st letter after a space)
                             }
+                        }
+
+                        lookWidth += textRenderer.MeasureString(line[i].ToString(), Font).Width;
+                    }
+                    if (displayLines[lineNumber].Previous && lineNumber > 0 && space == 0)
+                    {
+                        // this line wraps from the previous one. 
+                        var prevline = displayLines[lineNumber - 1].Line.StripAllCodes();
+                        if (prevline[prevline.Length - 1] != ' ')
+                        {
+                            int prevwidth = textRenderer.MeasureString(prevline, Font).Width;
+                            return ReturnWord(lineNumber - 1, prevwidth);
+                        }
+                    }
+
+                    if (!foundSpace && space < line.Length)
+                    {
+                        //wrap to the next line
+                        if (lineNumber < TotalDisplayLines)
+                        {
+                            var extra = "";
+                            var currentLine = displayLines[lineNumber].TextLine;
+
+                            while (lineNumber < TotalDisplayLines)
+                            {
+                                lineNumber++;
+                                if (displayLines[lineNumber].TextLine != currentLine) break;
+
+                                extra += displayLines[lineNumber].Line.StripAllCodes();
+                                if (extra.IndexOf(' ') > -1)
+                                {
+                                    extra = extra.Substring(0, extra.IndexOf(' '));
+                                    break;
+                                }
+                            }
+                            return line.Substring(space) + extra;
                         }
                     }
                 }
